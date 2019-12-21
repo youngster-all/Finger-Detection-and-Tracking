@@ -1,5 +1,8 @@
+#效果不好，演示效果背景干净，可能不适用于复杂背景条件
+#to do change detect algorithm and try again
 import cv2
 import numpy as np
+import sys
 
 hand_hist = None
 traverse_point = []
@@ -20,6 +23,7 @@ def rescale_frame(frame, wpercent=130, hpercent=130):
 def contours(hist_mask_image):
     gray_hist_mask_image = cv2.cvtColor(hist_mask_image, cv2.COLOR_BGR2GRAY)
     ret, thresh = cv2.threshold(gray_hist_mask_image, 0, 255, 0)
+    # cv2.imshow("002",thresh)
     _, cont, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     return cont
 
@@ -37,7 +41,7 @@ def max_contour(contour_list):
             max_area = area_cnt
             max_i = i
 
-        return contour_list[max_i]
+    return contour_list[max_i]
 
 
 def draw_rect(frame):
@@ -73,6 +77,7 @@ def hand_histogram(frame):
         roi[i * 10: i * 10 + 10, 0: 10] = hsv_frame[hand_rect_one_x[i]:hand_rect_one_x[i] + 10,
                                           hand_rect_one_y[i]:hand_rect_one_y[i] + 10]
 
+    #同时计算两个直方图
     hand_hist = cv2.calcHist([roi], [0, 1], None, [180, 256], [0, 180, 0, 256])
     return cv2.normalize(hand_hist, hand_hist, 0, 255, cv2.NORM_MINMAX)
 
@@ -80,7 +85,6 @@ def hand_histogram(frame):
 def hist_masking(frame, hist):
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     dst = cv2.calcBackProject([hsv], [0, 1], hist, [0, 180, 0, 256], 1)
-
     disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
     cv2.filter2D(dst, -1, disc, dst)
 
@@ -131,8 +135,11 @@ def draw_circles(frame, traverse_point):
             cv2.circle(frame, traverse_point[i], int(5 - (5 * i * 3) / 100), [0, 255, 255], -1)
 
 
-def manage_image_opr(frame, hand_hist):
-    hist_mask_image = hist_masking(frame, hand_hist)
+def manage_image_opr(frame):
+    hand_hist = detect(frame)
+    # hist_mask_image = hist_masking(frame, hand_hist)
+    hist_mask_image=segment(frame,hand_hist)
+    cv2.imshow("heap",hist_mask_image)
     contour_list = contours(hist_mask_image)
     max_cont = max_contour(contour_list)
 
@@ -154,6 +161,21 @@ def manage_image_opr(frame, hand_hist):
         draw_circles(frame, traverse_point)
 
 
+def detect(img):
+    ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb) # 把图像转换到YUV色域
+    (y, cr, cb) = cv2.split(ycrcb) # 图像分割, 分别获取y, cr, br通道图像
+    # 高斯滤波, cr 是待滤波的源图像数据, (5,5)是值窗口大小, 0 是指根据窗口大小来计算高斯函数标准差
+    cr1 = cv2.GaussianBlur(cr, (5, 5), 0) # 对cr通道分量进行高斯滤波
+    # 根据OTSU算法求图像阈值, 对图像进行二值化
+    _, skin1 = cv2.threshold(cr1, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return skin1
+
+
+def segment(img,mask):
+    thresh = cv2.merge((mask,mask,mask))
+    return cv2.bitwise_and(img, thresh)
+
+
 def main():
     global hand_hist
     is_hand_hist_created = False
@@ -165,15 +187,15 @@ def main():
 
         if pressed_key & 0xFF == ord('z'):
             is_hand_hist_created = True
-            hand_hist = hand_histogram(frame)
+            # hand_hist = hand_histogram(frame)
 
         if is_hand_hist_created:
-            manage_image_opr(frame, hand_hist)
+            manage_image_opr(frame)
 
         else:
             frame = draw_rect(frame)
 
-        cv2.imshow("Live Feed", rescale_frame(frame))
+        cv2.imshow("Live Feed", rescale_frame(cv2.flip(frame,1)))
 
         if pressed_key == 27:
             break
